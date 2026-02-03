@@ -3,11 +3,12 @@
 //! Tools are the agent's interface to the outside world. They can:
 //! - Call external APIs
 //! - Interact with the marketplace
-//! - Execute sandboxed code
+//! - Execute sandboxed code (via WASM sandbox)
 //! - Delegate tasks to other services
 
 pub mod builtin;
 pub mod mcp;
+pub mod wasm;
 
 mod builder;
 mod registry;

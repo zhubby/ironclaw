@@ -8,8 +8,8 @@ use std::sync::Arc;
 use near_agent::workspace::{MockEmbeddings, SearchConfig, Workspace, paths};
 
 fn get_pool() -> deadpool_postgres::Pool {
-    let database_url =
-        std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/near_agent_test".to_string());
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://localhost/near_agent_test".to_string());
 
     let config: tokio_postgres::Config = database_url.parse().expect("Invalid DATABASE_URL");
 
@@ -194,7 +194,10 @@ async fn test_workspace_daily_log() {
         .expect("Failed to append daily log");
 
     // Read today's log
-    let log = workspace.today_log().await.expect("Failed to get today log");
+    let log = workspace
+        .today_log()
+        .await
+        .expect("Failed to get today log");
     assert!(log.content.contains("feature X"));
     // Should have timestamp prefix like [HH:MM:SS]
     assert!(log.content.contains("["));
@@ -272,11 +275,17 @@ async fn test_workspace_hybrid_search_with_mock_embeddings() {
 
     // Write documents
     workspace
-        .write("memory.md", "The user prefers dark mode and vim keybindings.")
+        .write(
+            "memory.md",
+            "The user prefers dark mode and vim keybindings.",
+        )
         .await
         .expect("write failed");
     workspace
-        .write("prefs.md", "Settings: theme=dark, editor=vim, font=monospace")
+        .write(
+            "prefs.md",
+            "Settings: theme=dark, editor=vim, font=monospace",
+        )
         .await
         .expect("write failed");
 
@@ -335,16 +344,22 @@ async fn test_workspace_system_prompt() {
         .write(paths::SOUL, "Be kind and thorough.")
         .await
         .unwrap();
-    workspace
-        .write(paths::USER, "Name: Alice")
-        .await
-        .unwrap();
+    workspace.write(paths::USER, "Name: Alice").await.unwrap();
 
     // Get system prompt
-    let prompt = workspace.system_prompt().await.expect("system_prompt failed");
+    let prompt = workspace
+        .system_prompt()
+        .await
+        .expect("system_prompt failed");
 
-    assert!(prompt.contains("helpful assistant"), "Should include AGENTS.md");
-    assert!(prompt.contains("kind and thorough"), "Should include SOUL.md");
+    assert!(
+        prompt.contains("helpful assistant"),
+        "Should include AGENTS.md"
+    );
+    assert!(
+        prompt.contains("kind and thorough"),
+        "Should include SOUL.md"
+    );
     assert!(prompt.contains("Alice"), "Should include USER.md");
 
     cleanup_user(&pool, user_id).await;

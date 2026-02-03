@@ -64,6 +64,9 @@ secrecy = { version = "0.10", features = ["serde"] }
 # The postgres feature provides ToSql/FromSql for postgres-types (shared by tokio-postgres)
 pgvector = { version = "0.4", features = ["postgres"] }
 
+# WASM sandbox for untrusted tool execution
+wasmtime = { version = "28", features = ["component-model"] }
+
 [dev-dependencies]
 tokio-test = "0.4"
 testcontainers-modules = { version = "0.11", features = ["postgres"] }

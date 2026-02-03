@@ -165,7 +165,7 @@ DATABASE_URL=postgres://user:pass@localhost/near_agent
 # NEAR AI (required)
 NEARAI_SESSION_TOKEN=sess_...
 NEARAI_MODEL=claude-3-5-sonnet-20241022
-NEARAI_BASE_URL=https://api.near.ai
+NEARAI_BASE_URL=https://private.near.ai
 
 # Agent settings
 AGENT_NAME=near-agent

@@ -8,6 +8,9 @@ use tokio::sync::RwLock;
 use crate::llm::ToolDefinition;
 use crate::tools::builtin::{EchoTool, HttpTool, JsonTool, TimeTool};
 use crate::tools::tool::Tool;
+use crate::tools::wasm::{
+    Capabilities, ResourceLimits, WasmError, WasmToolRuntime, WasmToolWrapper,
+};
 
 /// Registry of available tools.
 pub struct ToolRegistry {
@@ -105,6 +108,68 @@ impl ToolRegistry {
 
         tracing::info!("Registered {} built-in tools", self.count());
     }
+
+    /// Register a WASM tool from bytes.
+    ///
+    /// This validates and compiles the WASM component, then registers it as a tool.
+    /// The tool will be executed in a sandboxed environment with the given capabilities.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let runtime = Arc::new(WasmToolRuntime::new(WasmRuntimeConfig::default())?);
+    /// let wasm_bytes = std::fs::read("my_tool.wasm")?;
+    ///
+    /// registry.register_wasm(WasmToolRegistration {
+    ///     name: "my_tool",
+    ///     wasm_bytes: &wasm_bytes,
+    ///     runtime: &runtime,
+    ///     description: Some("My custom tool description"),
+    ///     ..Default::default()
+    /// }).await?;
+    /// ```
+    pub async fn register_wasm(&self, reg: WasmToolRegistration<'_>) -> Result<(), WasmError> {
+        // Prepare the module (validates and compiles)
+        let prepared = reg
+            .runtime
+            .prepare(reg.name, reg.wasm_bytes, reg.limits)
+            .await?;
+
+        // Create the wrapper
+        let mut wrapper = WasmToolWrapper::new(Arc::clone(reg.runtime), prepared, reg.capabilities);
+
+        // Apply overrides if provided
+        if let Some(desc) = reg.description {
+            wrapper = wrapper.with_description(desc);
+        }
+        if let Some(s) = reg.schema {
+            wrapper = wrapper.with_schema(s);
+        }
+
+        // Register the tool
+        self.register(Arc::new(wrapper)).await;
+
+        tracing::info!(name = reg.name, "Registered WASM tool");
+        Ok(())
+    }
+}
+
+/// Configuration for registering a WASM tool.
+pub struct WasmToolRegistration<'a> {
+    /// Unique name for the tool.
+    pub name: &'a str,
+    /// Raw WASM component bytes.
+    pub wasm_bytes: &'a [u8],
+    /// WASM runtime for compilation and execution.
+    pub runtime: &'a Arc<WasmToolRuntime>,
+    /// Security capabilities to grant the tool.
+    pub capabilities: Capabilities,
+    /// Optional resource limits (uses defaults if None).
+    pub limits: Option<ResourceLimits>,
+    /// Optional description override.
+    pub description: Option<&'a str>,
+    /// Optional parameter schema override.
+    pub schema: Option<serde_json::Value>,
 }
 
 impl Default for ToolRegistry {
