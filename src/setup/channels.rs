@@ -15,7 +15,7 @@ use serde::Deserialize;
 #[cfg(feature = "postgres")]
 use crate::secrets::SecretsCrypto;
 use crate::secrets::{CreateSecretParams, SecretsStore};
-use crate::settings::Settings;
+use crate::settings::{Settings, TunnelSettings};
 use crate::setup::prompts::{
     confirm, input, optional_input, print_error, print_info, print_success, secret_input,
 };
@@ -155,6 +155,7 @@ struct TelegramUpdateUser {
 /// 4. Saving the token to the database
 pub async fn setup_telegram(
     secrets: &SecretsContext,
+    settings: &Settings,
 ) -> Result<TelegramSetupResult, ChannelSetupError> {
     println!("Telegram Setup:");
     println!();
@@ -169,8 +170,8 @@ pub async fn setup_telegram(
         print_info("Existing Telegram token found in database.");
         if !confirm("Replace existing token?", false)? {
             // Still offer to configure webhook secret and owner binding
-            let webhook_secret = setup_telegram_webhook_secret(secrets).await?;
-            let owner_id = bind_telegram_owner_flow(secrets).await?;
+            let webhook_secret = setup_telegram_webhook_secret(secrets, &settings.tunnel).await?;
+            let owner_id = bind_telegram_owner_flow(secrets, settings).await?;
             return Ok(TelegramSetupResult {
                 enabled: true,
                 bot_username: None,
@@ -201,7 +202,8 @@ pub async fn setup_telegram(
                 let owner_id = bind_telegram_owner(&token).await?;
 
                 // Offer webhook secret configuration
-                let webhook_secret = setup_telegram_webhook_secret(secrets).await?;
+                let webhook_secret =
+                    setup_telegram_webhook_secret(secrets, &settings.tunnel).await?;
 
                 return Ok(TelegramSetupResult {
                     enabled: true,
@@ -336,9 +338,8 @@ async fn bind_telegram_owner(token: &SecretString) -> Result<Option<i64>, Channe
 /// Retrieves the saved bot token and delegates to `bind_telegram_owner`.
 async fn bind_telegram_owner_flow(
     secrets: &SecretsContext,
+    settings: &Settings,
 ) -> Result<Option<i64>, ChannelSetupError> {
-    // Check current settings first
-    let settings = Settings::load();
     if settings.channels.telegram_owner_id.is_some() {
         print_info("Bot is already bound to a Telegram account.");
         if !confirm("Re-bind to a different account?", false)? {
@@ -356,9 +357,7 @@ async fn bind_telegram_owner_flow(
 ///
 /// This is shared across all channels that need webhook endpoints.
 /// Returns the tunnel URL if configured.
-pub fn setup_tunnel() -> Result<Option<String>, ChannelSetupError> {
-    // Check if already configured
-    let settings = Settings::load();
+pub fn setup_tunnel(settings: &Settings) -> Result<Option<String>, ChannelSetupError> {
     if let Some(ref url) = settings.tunnel.public_url {
         print_info(&format!("Existing tunnel configured: {}", url));
         if !confirm("Change tunnel configuration?", false)? {
@@ -398,17 +397,7 @@ pub fn setup_tunnel() -> Result<Option<String>, ChannelSetupError> {
     // Remove trailing slash if present
     let tunnel_url = tunnel_url.trim_end_matches('/').to_string();
 
-    // Save to settings
-    let mut settings = Settings::load();
-    settings.tunnel.public_url = Some(tunnel_url.clone());
-    settings.save().map_err(|e| {
-        ChannelSetupError::Io(std::io::Error::other(format!(
-            "Failed to save settings: {}",
-            e
-        )))
-    })?;
-
-    print_success(&format!("Tunnel URL saved: {}", tunnel_url));
+    print_success(&format!("Tunnel URL configured: {}", tunnel_url));
     print_info("");
     print_info("Make sure your tunnel is running before starting the agent.");
     print_info("You can also set TUNNEL_URL environment variable to override.");
@@ -421,10 +410,9 @@ pub fn setup_tunnel() -> Result<Option<String>, ChannelSetupError> {
 /// Returns the webhook secret if configured.
 async fn setup_telegram_webhook_secret(
     secrets: &SecretsContext,
+    tunnel: &TunnelSettings,
 ) -> Result<Option<String>, ChannelSetupError> {
-    // Check if tunnel is configured
-    let settings = Settings::load();
-    if settings.tunnel.public_url.is_none() {
+    if tunnel.public_url.is_none() {
         print_info("");
         print_info("No tunnel configured. Telegram will use polling mode (30s+ delay).");
         print_info("Run setup again to configure a tunnel for instant delivery.");
