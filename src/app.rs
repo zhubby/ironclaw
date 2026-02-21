@@ -22,6 +22,7 @@ use crate::skills::SkillRegistry;
 use crate::skills::catalog::SkillCatalog;
 use crate::tools::ToolRegistry;
 use crate::tools::mcp::McpSessionManager;
+use crate::tools::wasm::SharedCredentialRegistry;
 use crate::tools::wasm::WasmToolRuntime;
 use crate::workspace::{EmbeddingProvider, Workspace};
 
@@ -48,6 +49,7 @@ pub struct AppComponents {
     pub skill_catalog: Option<Arc<SkillCatalog>>,
     pub cost_guard: Arc<crate::agent::cost_guard::CostGuard>,
     pub session: Arc<SessionManager>,
+    pub catalog_entries: Vec<crate::extensions::RegistryEntry>,
 }
 
 /// Options that control optional init phases.
@@ -313,54 +315,41 @@ impl AppBuilder {
         ),
         anyhow::Error,
     > {
-        use crate::workspace::{NearAiEmbeddings, OpenAiEmbeddings};
-
         let safety = Arc::new(SafetyLayer::new(&self.config.safety));
         tracing::info!("Safety layer initialized");
 
-        let tools = Arc::new(ToolRegistry::new());
+        // Initialize tool registry with credential injection support
+        let credential_registry = Arc::new(SharedCredentialRegistry::new());
+        let tools = if let Some(ref ss) = self.secrets_store {
+            Arc::new(
+                ToolRegistry::new()
+                    .with_credentials(Arc::clone(&credential_registry), Arc::clone(ss)),
+            )
+        } else {
+            Arc::new(ToolRegistry::new())
+        };
         tools.register_builtin_tools();
 
-        // Create embeddings provider if configured
-        let embeddings: Option<Arc<dyn EmbeddingProvider>> = if self.config.embeddings.enabled {
-            match self.config.embeddings.provider.as_str() {
-                "nearai" => {
-                    tracing::info!(
-                        "Embeddings enabled via NEAR AI (model: {})",
-                        self.config.embeddings.model
-                    );
-                    Some(Arc::new(
-                        NearAiEmbeddings::new(
-                            &self.config.llm.nearai.base_url,
-                            self.session.clone(),
-                        )
-                        .with_model(&self.config.embeddings.model, 1536),
-                    ))
-                }
-                _ => {
-                    if let Some(api_key) = self.config.embeddings.openai_api_key() {
-                        tracing::info!(
-                            "Embeddings enabled via OpenAI (model: {})",
-                            self.config.embeddings.model
-                        );
-                        Some(Arc::new(OpenAiEmbeddings::with_model(
-                            api_key,
-                            &self.config.embeddings.model,
-                            match self.config.embeddings.model.as_str() {
-                                "text-embedding-3-large" => 3072,
-                                _ => 1536,
-                            },
-                        )))
-                    } else {
-                        tracing::warn!("Embeddings configured but OPENAI_API_KEY not set");
-                        None
-                    }
-                }
-            }
-        } else {
-            tracing::info!("Embeddings disabled (set OPENAI_API_KEY or EMBEDDING_ENABLED=true)");
-            None
-        };
+        // Create embeddings provider using the unified method
+        let embeddings = self
+            .config
+            .embeddings
+            .create_provider(&self.config.llm.nearai.base_url, self.session.clone());
+
+        // Warn if libSQL backend is used with non-1536 embedding dimension.
+        if self.config.database.backend == crate::config::DatabaseBackend::LibSql
+            && self.config.embeddings.enabled
+            && self.config.embeddings.dimension != 1536
+        {
+            tracing::warn!(
+                configured_dimension = self.config.embeddings.dimension,
+                "Embedding dimension {} is not 1536. The libSQL schema uses \
+                 F32_BLOB(1536) which requires exactly 1536 dimensions. \
+                 Embedding storage will fail. Use PostgreSQL or set \
+                 EMBEDDING_DIMENSION=1536.",
+                self.config.embeddings.dimension
+            );
+        }
 
         // Register memory tools if database is available
         let workspace = if let Some(ref db) = self.db {
@@ -402,6 +391,7 @@ impl AppBuilder {
             Arc<McpSessionManager>,
             Option<Arc<WasmToolRuntime>>,
             Option<Arc<ExtensionManager>>,
+            Vec<crate::extensions::RegistryEntry>,
         ),
         anyhow::Error,
     > {
@@ -640,7 +630,12 @@ impl AppBuilder {
             tools.register_dev_tools();
         }
 
-        Ok((mcp_session_manager, wasm_tool_runtime, extension_manager))
+        Ok((
+            mcp_session_manager,
+            wasm_tool_runtime,
+            extension_manager,
+            catalog_entries,
+        ))
     }
 
     /// Run all init phases in order and return the assembled components.
@@ -654,7 +649,7 @@ impl AppBuilder {
         // Create hook registry early so runtime extension activation can register hooks.
         let hooks = Arc::new(HookRegistry::new());
 
-        let (mcp_session_manager, wasm_tool_runtime, extension_manager) =
+        let (mcp_session_manager, wasm_tool_runtime, extension_manager, catalog_entries) =
             self.init_extensions(&tools, &hooks).await?;
 
         // Seed workspace and backfill embeddings
@@ -730,6 +725,7 @@ impl AppBuilder {
             skill_catalog,
             cost_guard,
             session: self.session,
+            catalog_entries,
         })
     }
 }

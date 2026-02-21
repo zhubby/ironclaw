@@ -47,3 +47,28 @@ where
         .transpose()
         .map(|opt| opt.unwrap_or(default))
 }
+
+/// Parse a boolean from an env var with a default.
+///
+/// Accepts "true"/"1" as true, "false"/"0" as false.
+pub(crate) fn parse_bool_env(key: &str, default: bool) -> Result<bool, ConfigError> {
+    match optional_env(key)? {
+        Some(s) => match s.to_lowercase().as_str() {
+            "true" | "1" => Ok(true),
+            "false" | "0" => Ok(false),
+            _ => Err(ConfigError::InvalidValue {
+                key: key.to_string(),
+                message: format!("must be 'true' or 'false', got '{s}'"),
+            }),
+        },
+        None => Ok(default),
+    }
+}
+
+/// Parse a string from an env var with a default.
+pub(crate) fn parse_string_env(
+    key: &str,
+    default: impl Into<String>,
+) -> Result<String, ConfigError> {
+    Ok(optional_env(key)?.unwrap_or_else(|| default.into()))
+}
