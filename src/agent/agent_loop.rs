@@ -397,6 +397,8 @@ impl Agent {
                         self.llm().clone(),
                         Arc::clone(workspace),
                         notify_tx,
+                        Some(self.context_manager.clone()),
+                        Some(self.scheduler.clone()),
                     ));
 
                     // Register routine tools
