@@ -379,7 +379,7 @@ async fn main() -> anyhow::Result<()> {
         &config.channels.wasm_channels_dir,
         &active_tool_names,
         &loaded_wasm_channel_names,
-        &[], // dev_loaded_tool_names tracked inside AppBuilder now
+        &components.dev_loaded_tool_names,
     )
     .await;
     tracing::info!(

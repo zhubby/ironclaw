@@ -65,6 +65,23 @@ pub(crate) fn parse_bool_env(key: &str, default: bool) -> Result<bool, ConfigErr
     }
 }
 
+/// Parse an env var into `Option<T>` — returns `None` when unset,
+/// `Some(parsed)` when set to a valid value.
+pub(crate) fn parse_option_env<T>(key: &str) -> Result<Option<T>, ConfigError>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    optional_env(key)?
+        .map(|s| {
+            s.parse().map_err(|e| ConfigError::InvalidValue {
+                key: key.to_string(),
+                message: format!("{e}"),
+            })
+        })
+        .transpose()
+}
+
 /// Parse a string from an env var with a default.
 pub(crate) fn parse_string_env(
     key: &str,

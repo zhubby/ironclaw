@@ -50,6 +50,7 @@ pub struct AppComponents {
     pub cost_guard: Arc<crate::agent::cost_guard::CostGuard>,
     pub session: Arc<SessionManager>,
     pub catalog_entries: Vec<crate::extensions::RegistryEntry>,
+    pub dev_loaded_tool_names: Vec<String>,
 }
 
 /// Options that control optional init phases.
@@ -392,6 +393,7 @@ impl AppBuilder {
             Option<Arc<WasmToolRuntime>>,
             Option<Arc<ExtensionManager>>,
             Vec<crate::extensions::RegistryEntry>,
+            Vec<String>,
         ),
         anyhow::Error,
     > {
@@ -421,6 +423,8 @@ impl AppBuilder {
             let tools = Arc::clone(tools);
             let wasm_config = self.config.wasm.clone();
             async move {
+                let mut dev_loaded_tool_names: Vec<String> = Vec::new();
+
                 if let Some(ref runtime) = wasm_tool_runtime {
                     let mut loader = WasmToolLoader::new(Arc::clone(runtime), Arc::clone(&tools));
                     if let Some(ref secrets) = secrets_store {
@@ -451,10 +455,11 @@ impl AppBuilder {
 
                     match load_dev_tools(&loader, &wasm_config.tools_dir).await {
                         Ok(results) => {
-                            if !results.loaded.is_empty() {
+                            dev_loaded_tool_names.extend(results.loaded.iter().cloned());
+                            if !dev_loaded_tool_names.is_empty() {
                                 tracing::info!(
                                     "Loaded {} dev WASM tools from build artifacts",
-                                    results.loaded.len()
+                                    dev_loaded_tool_names.len()
                                 );
                             }
                         }
@@ -463,6 +468,8 @@ impl AppBuilder {
                         }
                     }
                 }
+
+                dev_loaded_tool_names
             }
         };
 
@@ -567,7 +574,7 @@ impl AppBuilder {
             }
         };
 
-        tokio::join!(wasm_tools_future, mcp_servers_future);
+        let (dev_loaded_tool_names, _) = tokio::join!(wasm_tools_future, mcp_servers_future);
 
         // Load registry catalog entries for extension discovery
         let catalog_entries = match crate::registry::RegistryCatalog::load_or_embedded() {
@@ -635,6 +642,7 @@ impl AppBuilder {
             wasm_tool_runtime,
             extension_manager,
             catalog_entries,
+            dev_loaded_tool_names,
         ))
     }
 
@@ -649,8 +657,13 @@ impl AppBuilder {
         // Create hook registry early so runtime extension activation can register hooks.
         let hooks = Arc::new(HookRegistry::new());
 
-        let (mcp_session_manager, wasm_tool_runtime, extension_manager, catalog_entries) =
-            self.init_extensions(&tools, &hooks).await?;
+        let (
+            mcp_session_manager,
+            wasm_tool_runtime,
+            extension_manager,
+            catalog_entries,
+            dev_loaded_tool_names,
+        ) = self.init_extensions(&tools, &hooks).await?;
 
         // Seed workspace and backfill embeddings
         if let Some(ref ws) = workspace {
@@ -726,6 +739,7 @@ impl AppBuilder {
             cost_guard,
             session: self.session,
             catalog_entries,
+            dev_loaded_tool_names,
         })
     }
 }

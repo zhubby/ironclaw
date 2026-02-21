@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::config::helpers::{parse_bool_env, parse_optional_env};
+use crate::config::helpers::{parse_bool_env, parse_option_env, parse_optional_env};
 use crate::error::ConfigError;
 use crate::settings::Settings;
 
@@ -59,20 +59,8 @@ impl AgentConfig {
                 settings.agent.session_idle_timeout_secs,
             )?),
             allow_local_tools: parse_bool_env("ALLOW_LOCAL_TOOLS", false)?,
-            max_cost_per_day_cents: crate::config::helpers::optional_env("MAX_COST_PER_DAY_CENTS")?
-                .map(|s| s.parse())
-                .transpose()
-                .map_err(|e: std::num::ParseIntError| ConfigError::InvalidValue {
-                    key: "MAX_COST_PER_DAY_CENTS".to_string(),
-                    message: format!("must be a positive integer: {e}"),
-                })?,
-            max_actions_per_hour: crate::config::helpers::optional_env("MAX_ACTIONS_PER_HOUR")?
-                .map(|s| s.parse())
-                .transpose()
-                .map_err(|e: std::num::ParseIntError| ConfigError::InvalidValue {
-                    key: "MAX_ACTIONS_PER_HOUR".to_string(),
-                    message: format!("must be a positive integer: {e}"),
-                })?,
+            max_cost_per_day_cents: parse_option_env("MAX_COST_PER_DAY_CENTS")?,
+            max_actions_per_hour: parse_option_env("MAX_ACTIONS_PER_HOUR")?,
             max_tool_iterations: parse_optional_env(
                 "AGENT_MAX_TOOL_ITERATIONS",
                 settings.agent.max_tool_iterations,
