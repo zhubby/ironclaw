@@ -25,7 +25,6 @@ use crate::agent::routine::{
 };
 use crate::channels::{IncomingMessage, OutgoingResponse};
 use crate::config::RoutineConfig;
-use crate::context::ContextManager;
 use crate::db::Database;
 use crate::error::RoutineError;
 use crate::llm::{ChatMessage, CompletionRequest, FinishReason, LlmProvider};
@@ -43,8 +42,6 @@ pub struct RoutineEngine {
     running_count: Arc<AtomicUsize>,
     /// Compiled event regex cache: routine_id -> compiled regex.
     event_cache: Arc<RwLock<Vec<(Uuid, Routine, Regex)>>>,
-    /// Context manager for creating jobs (FullJob mode).
-    context_manager: Option<Arc<ContextManager>>,
     /// Scheduler for dispatching jobs (FullJob mode).
     scheduler: Option<Arc<Scheduler>>,
 }
@@ -56,7 +53,6 @@ impl RoutineEngine {
         llm: Arc<dyn LlmProvider>,
         workspace: Arc<Workspace>,
         notify_tx: mpsc::Sender<OutgoingResponse>,
-        context_manager: Option<Arc<ContextManager>>,
         scheduler: Option<Arc<Scheduler>>,
     ) -> Self {
         Self {
@@ -67,7 +63,6 @@ impl RoutineEngine {
             notify_tx,
             running_count: Arc::new(AtomicUsize::new(0)),
             event_cache: Arc::new(RwLock::new(Vec::new())),
-            context_manager,
             scheduler,
         }
     }
@@ -235,8 +230,6 @@ impl RoutineEngine {
             workspace: self.workspace.clone(),
             notify_tx: self.notify_tx.clone(),
             running_count: self.running_count.clone(),
-
-            context_manager: self.context_manager.clone(),
             scheduler: self.scheduler.clone(),
         };
 
@@ -269,8 +262,6 @@ impl RoutineEngine {
             workspace: self.workspace.clone(),
             notify_tx: self.notify_tx.clone(),
             running_count: self.running_count.clone(),
-
-            context_manager: self.context_manager.clone(),
             scheduler: self.scheduler.clone(),
         };
 
@@ -318,7 +309,6 @@ struct EngineContext {
     workspace: Arc<Workspace>,
     notify_tx: mpsc::Sender<OutgoingResponse>,
     running_count: Arc<AtomicUsize>,
-    context_manager: Option<Arc<ContextManager>>,
     scheduler: Option<Arc<Scheduler>>,
 }
 
@@ -334,8 +324,10 @@ async fn execute_routine(ctx: EngineContext, routine: Routine, run: RoutineRun) 
             max_tokens,
         } => execute_lightweight(&ctx, &routine, prompt, context_paths, *max_tokens).await,
         RoutineAction::FullJob {
-            title, description, ..
-        } => execute_full_job(&ctx, &routine, &run, title, description).await,
+            title,
+            description,
+            max_iterations,
+        } => execute_full_job(&ctx, &routine, &run, title, description, *max_iterations).await,
     };
 
     // Decrement running count
@@ -415,23 +407,18 @@ fn sanitize_routine_name(name: &str) -> String {
 
 /// Execute a full-job routine by dispatching to the scheduler.
 ///
-/// Fire-and-forget: creates a job via the context manager, schedules it, links
-/// the routine run to the job, and returns immediately. The job runs
-/// independently via the existing Worker/Scheduler with full tool access.
+/// Fire-and-forget: creates a job via `Scheduler::dispatch_job` (which handles
+/// creation, metadata, persistence, and scheduling), links the routine run to
+/// the job, and returns immediately. The job runs independently via the
+/// existing Worker/Scheduler with full tool access.
 async fn execute_full_job(
     ctx: &EngineContext,
     routine: &Routine,
     run: &RoutineRun,
     title: &str,
     description: &str,
+    max_iterations: u32,
 ) -> Result<(RunStatus, Option<String>, Option<i32>), RoutineError> {
-    let context_manager =
-        ctx.context_manager
-            .as_ref()
-            .ok_or_else(|| RoutineError::JobDispatchFailed {
-                reason: "context_manager not available".to_string(),
-            })?;
-
     let scheduler = ctx
         .scheduler
         .as_ref()
@@ -439,36 +426,13 @@ async fn execute_full_job(
             reason: "scheduler not available".to_string(),
         })?;
 
-    // Create a job for this routine's user
-    let job_id = context_manager
-        .create_job_for_user(&routine.user_id, title, description)
-        .await
-        .map_err(|e| RoutineError::JobDispatchFailed {
-            reason: format!("failed to create job: {e}"),
-        })?;
+    let metadata = serde_json::json!({ "max_iterations": max_iterations });
 
-    // Persist the job to the database before scheduling so that FK references
-    // from job_actions / llm_calls don't fail when the worker starts emitting rows.
-    let job_ctx =
-        context_manager
-            .get_context(job_id)
-            .await
-            .map_err(|e| RoutineError::JobDispatchFailed {
-                reason: format!("failed to fetch job context: {e}"),
-            })?;
-    ctx.store
-        .save_job(&job_ctx)
+    let job_id = scheduler
+        .dispatch_job(&routine.user_id, title, description, Some(metadata))
         .await
         .map_err(|e| RoutineError::JobDispatchFailed {
-            reason: format!("failed to persist job: {e}"),
-        })?;
-
-    // Schedule the job for execution
-    scheduler
-        .schedule(job_id)
-        .await
-        .map_err(|e| RoutineError::JobDispatchFailed {
-            reason: format!("failed to schedule job: {e}"),
+            reason: format!("failed to dispatch job: {e}"),
         })?;
 
     // Link the routine run to the dispatched job
@@ -482,10 +446,13 @@ async fn execute_full_job(
     tracing::info!(
         routine = %routine.name,
         job_id = %job_id,
+        max_iterations = max_iterations,
         "Dispatched full job for routine"
     );
 
-    let summary = format!("Dispatched job {job_id} for full execution with tool access");
+    let summary = format!(
+        "Dispatched job {job_id} for full execution with tool access (max_iterations: {max_iterations})"
+    );
     Ok((RunStatus::Ok, Some(summary), None))
 }
 

@@ -163,7 +163,13 @@ Report when the job is complete or if you encounter issues you cannot resolve."#
         reasoning: &Reasoning,
         reason_ctx: &mut ReasoningContext,
     ) -> Result<(), Error> {
-        let max_iterations = 50;
+        let max_iterations = self
+            .context_manager()
+            .get_context(self.job_id)
+            .await
+            .ok()
+            .and_then(|ctx| ctx.metadata.get("max_iterations").and_then(|v| v.as_u64()))
+            .unwrap_or(50) as usize;
         let mut iteration = 0;
 
         // Initial tool definitions for planning (will be refreshed in loop)
