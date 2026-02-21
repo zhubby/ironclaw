@@ -447,6 +447,22 @@ async fn execute_full_job(
             reason: format!("failed to create job: {e}"),
         })?;
 
+    // Persist the job to the database before scheduling so that FK references
+    // from job_actions / llm_calls don't fail when the worker starts emitting rows.
+    let job_ctx =
+        context_manager
+            .get_context(job_id)
+            .await
+            .map_err(|e| RoutineError::JobDispatchFailed {
+                reason: format!("failed to fetch job context: {e}"),
+            })?;
+    ctx.store
+        .save_job(&job_ctx)
+        .await
+        .map_err(|e| RoutineError::JobDispatchFailed {
+            reason: format!("failed to persist job: {e}"),
+        })?;
+
     // Schedule the job for execution
     scheduler
         .schedule(job_id)
