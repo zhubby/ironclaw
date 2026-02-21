@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/nearai/ironclaw/compare/v0.9.0...v0.10.0) - 2026-02-21
+
+### Added
+
+- add pairing/permission system to all WASM channels and fix extension registry ([#286](https://github.com/nearai/ironclaw/pull/286))
+- group chat privacy, channel-aware prompts, and safety hardening ([#285](https://github.com/nearai/ironclaw/pull/285))
+- embedded registry catalog and WASM bundle install pipeline ([#283](https://github.com/nearai/ironclaw/pull/283))
+- show token usage and cost tracker in gateway status popover ([#284](https://github.com/nearai/ironclaw/pull/284))
+- support custom HTTP headers for OpenAI-compatible provider ([#269](https://github.com/nearai/ironclaw/pull/269))
+- add smart routing provider for cost-optimized model selection ([#281](https://github.com/nearai/ironclaw/pull/281))
+
+### Fixed
+
+- map Esc to interrupt and Ctrl+C to graceful quit ([#267](https://github.com/nearai/ironclaw/pull/267))
+
+### Other
+
+- allow OAuth callback to work on remote servers (fixes #186) ([#212](https://github.com/nearai/ironclaw/pull/212))
+- add rate limiting for built-in tools (closes #171) ([#276](https://github.com/nearai/ironclaw/pull/276))
+- add LLM providers guide (OpenRouter, Together AI, Fireworks, Ollama, vLLM) ([#193](https://github.com/nearai/ironclaw/pull/193))
+- Feat/html to markdown #106  ([#115](https://github.com/nearai/ironclaw/pull/115))
+- adopt agent-market design language for web UI ([#282](https://github.com/nearai/ironclaw/pull/282))
+- speed up startup from ~15s to ~2s ([#280](https://github.com/nearai/ironclaw/pull/280))
+- consolidate tool approval into single param-aware method ([#274](https://github.com/nearai/ironclaw/pull/274))
+
 ## [0.9.0](https://github.com/nearai/ironclaw/compare/v0.8.0...v0.9.0) - 2026-02-21
 
 ### Added
